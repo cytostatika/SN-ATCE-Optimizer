@@ -21,6 +21,28 @@ from ntc_optimization.dataclasses_and_config import OptimizationParameters
 from ntc_optimization.prepare_data_from_gc_matrix import load_gc_matrix_with_ptdfs_and_aac
 
 from ntc_optimization.solve_ntc_optimzation import ConstraintOptions, OptimizationConfig, compute_optimal_ntcs_for_mtu
+from ntc_optimization.generate_gc_matrix_from_jao import get_shadow_price, get_jao, merge_jao_and_sp, change_columns_names, calculate_z2z_ptdfs, create_dataframe_from_jao_data, get_jao_api
+
+
+list_of_all_borders = [
+    "DK1-DK1_CO", "DK1_CO-DK1", "DK1_DE-DK1", "DK1_KS-DK1", "DK1_SK-DK1", "DK1_SB-DK1", 
+    "DK1-DK1_DE", "DK1-DK1_KS", "DK1-DK1_SK", "DK1-DK1_SB", "DK2_KO-DK2", "DK2_SB-DK2", 
+    "DK2-DK2_KO", "DK2-DK2_SB", "DK2-SE4", "FI_EL-FI", "FI_FS-FI", "FI-FI_EL", "FI-FI_FS", 
+    "FI-NO4", "FI-SE1", "NO1-NO2", "NO1-NO3", "NO1-NO5", "NO1-SE3", "NO2_ND-NO2", "NO2_NK-NO2", 
+    "NO2_SK-NO2", "NO2-NO1", "NO2-NO2_ND", "NO2-NO2_NK", "NO2-NO2_SK", "NO2-NO5", "NO3-NO1", 
+    "NO3-NO4", "NO3-NO5", "NO3-SE2", "NO4-FI", "NO4-NO3", "NO4-SE1", "NO4-SE2", "NO5-NO1", 
+    "NO5-NO2", "NO5-NO3", "SE1-FI", "SE1-NO4", "SE1-SE2", "SE2-NO3", "SE2-NO4", "SE2-SE1", 
+    "SE2-SE3", "SE3_FS-SE3", "SE3_KS-SE3", "SE3_SWL-SE3", "SE3-NO1", "SE3-SE2", "SE3-SE3_FS", 
+    "SE3-SE3_KS", "SE3-SE3_SWL", "SE3-SE4", "SE4_BC-SE4", "SE4_NB-SE4", "SE4_SP-SE4", 
+    "SE4_SWL-SE4", "SE4-DK2", "SE4-SE3", "SE4-SE4_BC", "SE4-SE4_NB", "SE4-SE4_SP", "SE4-SE4_SWL"
+]
+
+list_of_all_zones = [
+    "DK1", "DK1_CO", "DK1_DE", "DK1_KS", "DK1_SK", "DK1_SB", "DK2", "DK2_KO", "DK2_SB", "FI",
+      "FI_EL", "FI_FS", "NO1", "NO2", "NO2_ND", "NO2_NK", "NO2_SK", "NO3", "NO4", "NO5", "SE1",
+        "SE2", "SE3", "SE3_FS", "SE3_KS", "SE3_SWL", "SE4", "SE4_BC", "SE4_NB", "SE4_SP", "SE4_SWL"
+
+]
 
 atce_border_name_dict_hvdc = {
     "DK1A-SE3A":"DK1-DK1_KS",
@@ -69,6 +91,26 @@ list_of_borders_to_remove = ['DK1_SB-DK1', 'DK1_SK-DK1', 'DK2_SB-DK2']
 @st.cache_data(persist=True)
 def get_matrix_from_url(url: str) -> pd.DataFrame:
     matrix = pd.read_csv(url, encoding="unicode_escape", sep=";")
+    return matrix
+
+
+@st.cache_data()
+def get_matrix_from_jao_and_sp(start, end) -> pd.DataFrame:
+    sp = get_shadow_price(start, end)
+    jao = get_jao(start, end)
+    merged_data = merge_jao_and_sp(jao, sp)
+    merged_corrected = change_columns_names(merged_data)
+    matrix = calculate_z2z_ptdfs(merged_corrected, list_of_all_borders)
+    matrix['DatetimeCET'] = pd.to_datetime(matrix['DatetimeCET']).dt.strftime('%Y-%m-%d %H:%M:%S.000')
+    return matrix
+
+
+@st.cache_data()
+def get_matrix_from_jao_api(start, end, jao_token) -> pd.DataFrame:
+    jao_api = create_dataframe_from_jao_data(start, end, jao_token)
+    merged_corrected = change_columns_names(jao_api)
+    matrix = calculate_z2z_ptdfs(merged_corrected, list_of_all_borders)
+    matrix['DatetimeCET'] = pd.to_datetime(matrix['DatetimeCET']).dt.strftime('%Y-%m-%d %H:%M:%S.000')
     return matrix
 
 
@@ -219,7 +261,24 @@ st.title("ATC Optimization toolkit")
 
 st.header("Input data configuration - see the Nordic RCC website for links to data")
 st.subheader("Grid Constraint Matrix")
-gc_url = st.text_input("URL to get GC matrix from")
+gc_option = st.radio("Choose file option for GC-matrix", ("URL (nordic-rcc.net)", "Statnett database", 'JAO API'))
+if gc_option == "URL (nordic-rcc.net)":
+    gc_url = st.text_input("URL to get GC-matrix")
+    sn_gc = None
+    jao_gc = None
+elif gc_option == "Statnett database":
+    start = st.date_input("Start date", value=datetime.now().date() - timedelta(days=2), key='start_date')
+    end = st.date_input("End date", value=datetime.now().date() - timedelta(days=1), key='end_date')
+    sn_gc = st.button("Fetch data from Statnett and run computaion")
+    gc_url = None
+    jao_gc = None
+elif gc_option == "JAO API":
+    start = st.date_input("Start date", value=datetime.now().date() - timedelta(days=2), key='start_date')
+    end = st.date_input("End date", value=datetime.now().date() - timedelta(days=1), key='end_date')
+    jao_token = st.text_input("Enter personal JAO token", type="password")
+    jao_gc = st.button("Fetch data from JAO and run computation")
+    gc_url = None
+    sn_gc = None
 st.subheader("Industrial tool output for comparison")
 file_option = st.radio("Choose file option for ATCE results from GE/RCC:", ("URL (nordic-rcc.net)", "Local File"))
 if file_option == "URL (nordic-rcc.net)":
@@ -383,13 +442,40 @@ if gc_url:
     matrix = get_matrix_from_url(gc_url)
     mtus = matrix["DatetimeCET"].unique()
     mtus.sort()
+    st.session_state['matrix'] = matrix
+    st.session_state['mtus'] = mtus
+
+
+if sn_gc:
+    st.subheader("Runtime Options")
+    matrix = get_matrix_from_jao_and_sp(start, end)
+    mtus = matrix["DatetimeCET"].unique()
+    ptdf_cols = [col for col in matrix.columns if 'z2z' in col]
+    #assert all([matrix[col].isna().sum() == 0 for col in ptdf_cols])
+    mtus.sort()
+    st.session_state['matrix'] = matrix
+    st.session_state['mtus'] = mtus
+
+
+if jao_gc:
+    st.subheader("Runtime Options")
+    matrix = get_matrix_from_jao_api(start, end, jao_token)
+    mtus = matrix["DatetimeCET"].unique()
+    mtus.sort()
+    st.session_state['matrix'] = matrix
+    st.session_state['mtus'] = mtus
+
+matrix = st.session_state['matrix'] if 'matrix' in st.session_state else None
+mtus = st.session_state['mtus'] if 'mtus' in st.session_state else None
 
 if matrix is not None:
 
     mtu_datetimes: list[datetime] = []
     # HACK: Transition from winter to summer time is not handled
     summertime_date: None | date = None
+    
     for iso_datetime_str in mtus:
+        iso_datetime_str = str(iso_datetime_str)
         if "24:00:00" in iso_datetime_str:
             iso_datetime_str = iso_datetime_str.replace("24:00:00", "00:00:00")
             base_date = datetime.strptime(iso_datetime_str, "%Y-%m-%d %H:%M:%S.%f")
@@ -452,7 +538,7 @@ if matrix is not None and st.button("Run Computation"):
     non_relaxed_parameters_for_mtu: dict[datetime, OptimizationParameters] = {}
     total_hours = (time_range[1] - time_range[0]).total_seconds() / 3600
 
-    borders = matrix[matrix["Border"]]
+    borders = matrix[matrix["JAO_CNEC_Name"].str.contains("Border", na=False)]
     bz_names = borders['BIDDINGAREA_TO'].unique()
     
     seen_corridors = set()
