@@ -11,7 +11,7 @@ from ntc_optimization.optimization_functions import ram_constraint
 
 def extract_corridor_names_and_aac(matrix: pd.DataFrame, corridor_names: list[tuple[str, str]]):
     seen_opposite_pairs = set()
-    borders = matrix[matrix["Border"]]
+    borders = matrix[matrix["JAO_CNEC_Name"].str.lower().str.contains("border_cnec")]
     non_existing_borders_in_matrix = []
     variabe_initial_values = []
 
@@ -180,7 +180,10 @@ def load_gc_matrix_with_ptdfs_and_aac(
         "SE4_SP",
     ]
     nonredundant_matrix = matrix[matrix["Non_Redundant"]]
-    is_cnec = nonredundant_matrix["JAO_Contin_Name"] != "BASECASE"
+    if "cneType" in nonredundant_matrix.columns:
+        is_cnec = nonredundant_matrix["cneType"] == "CNE"
+    else:
+        is_cnec = nonredundant_matrix["JAO_Contin_Name"] != "BASECASE"
     is_hvdc = nonredundant_matrix["JAO_CNEC_Name"].str.contains("|".join(hvdc_names)) | nonredundant_matrix[
         "JAO_CNEC_Name"
     ].str.contains("|".join(["IMP", "EXP"]))
