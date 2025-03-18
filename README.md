@@ -1,6 +1,7 @@
 
 # ATC Extraction tool
 
+
 ## Introduction
 
 This repo contains code to extract NTC/ATC capacities for intraday trading from the Flow Based Market clearing domain. As input, the code takes a Grid Constraint matrix as issued by the nordic RCC [ here ]( https://nordic-rcc.net/flow-based/simulation-results/ ). Simply copy the url link for "Grid Constraint Matrix week [X]" and you are ready to simulate.
